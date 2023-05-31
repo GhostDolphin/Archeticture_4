@@ -85,7 +85,7 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	}
 }
 
-type IsHealthy strcut {
+type IsHealthy struct {
 	status map[string]bool
 	health func(dst string) bool
 }
@@ -131,27 +131,25 @@ func (bal *Balancer) doBalancer(url string) string {
 	allHealthy := bal.isHealthy.AllHealthy()
 
 	if len(allHealthy) == 0 {
-		log.Println('There are no healthy servers')
-		return 'There are no healthy servers'
+		log.Println("There are no healthy servers")
+		return "There are no healthy servers"
 	}
+	return ""
 }
 
 func main() {
 	flag.Parse()
+	isHealthy := &IsHealthy{}
+	isHealthy.status = map[string]bool{}
+	isHealthy.health = health
+	balance := &Balancer{}
+	balance.isHealthy = isHealthy
 
-	// TODO: Використовуйте дані про стан сервреа, щоб підтримувати список тих серверів, яким можна відправляти ззапит.
-	for _, server := range serversPool {
-		server := server
-		go func() {
-			for range time.Tick(10 * time.Second) {
-				log.Println(server, health(server))
-			}
-		}()
-	}
+	go balance.verifyServer()
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		// TODO: Рееалізуйте свій алгоритм балансувальника.
-		forward(serversPool[0], rw, r)
+		server := balance.doBalancer(r.URL.Path)
+		forward(server, rw, r)
 	}))
 
 	log.Println("Starting load balancer...")
