@@ -10,8 +10,8 @@ import (
 	"time"
 	"hash/fnv"
 
-	"github.com/roman-mazur/design-practice-2-template/httptools"
-	"github.com/roman-mazur/design-practice-2-template/signal"
+	"github.com/GhostDolphin/Architecture_4/httptools"
+	"github.com/GhostDolphin/Architecture_4/signal"
 )
 
 var (
