@@ -1,1 +1,1 @@
-# Archeticture_4
+# Architecture_4
