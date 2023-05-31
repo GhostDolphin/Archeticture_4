@@ -85,6 +85,57 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	}
 }
 
+type IsHealthy strcut {
+	status map[string]bool
+	health func(dst string) bool
+}
+
+type Balancer struct {
+	isHealthy *IsHealthy
+}
+
+func (hp *IsHealthy) CheckAll() {
+	for _, server := range serversPool {
+		if hp.health(server) {
+			hp.status[server] = true
+		} else {
+			hp.status[server] = false
+		}
+	}
+}
+
+func (bal *Balancer) verifyServer() {
+	for {
+		bal.isHealthy.CheckAll()
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (hp *IsHealthy) AllHealthy() []string {
+	var allHealthy []string
+	for _, server := range serversPool {
+		if hp.status[server] {
+			allHealthy = append(allHealthy, server)
+		}
+	}
+	return allHealthy
+}
+
+func hash(input string) uint32 {
+	hsh := fnv.New32a()
+	hsh.Write([]byte(input))
+	return hsh.Sum32()
+}
+
+func (bal *Balancer) doBalancer(url string) string {
+	allHealthy := bal.isHealthy.AllHealthy()
+
+	if len(allHealthy) == 0 {
+		log.Println('There are no healthy servers')
+		return 'There are no healthy servers'
+	}
+}
+
 func main() {
 	flag.Parse()
 
