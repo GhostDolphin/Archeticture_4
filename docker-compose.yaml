@@ -18,18 +18,18 @@ services:
     networks:
       - servers
     ports:
-      - "8080:8080"
+      - "9431:9431"
 
   server2:
     build: .
     networks:
       - servers
     ports:
-      - "8081:8080"
+      - "9432:9432"
 
   server3:
     build: .
     networks:
       - servers
     ports:
-      - "8082:8080"
+      - "9433:9433"
