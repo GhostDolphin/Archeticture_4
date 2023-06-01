@@ -4,27 +4,27 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
 	"time"
-	"hash/fnv"
 
 	"github.com/GhostDolphin/Architecture_4/httptools"
 	"github.com/GhostDolphin/Architecture_4/signal"
 )
 
 var (
-	port = flag.Int("port", 8090, "load balancer port")
-	timeoutSec = flag.Int("timeout-sec", 3, "request timeout time in seconds")
-	https = flag.Bool("https", false, "whether backends support HTTPs")
+	lbPort         = flag.Int("port", 8090, "load balancer port")
+	requestTimeout = flag.Int("timeout-sec", 3, "request timeout time in seconds")
+	httpsEnabled   = flag.Bool("https", false, "whether backends support HTTPS")
 
 	traceEnabled = flag.Bool("trace", false, "whether to include tracing information into responses")
 )
 
 var (
-	timeout = time.Duration(*timeoutSec) * time.Second
-	serversPool = []string{
+	timeout     = time.Duration(*requestTimeout) * time.Second
+	backends    = []string{
 		"server1:8080",
 		"server2:8080",
 		"server3:8080",
@@ -32,7 +32,7 @@ var (
 )
 
 func scheme() string {
-	if *https {
+	if *httpsEnabled {
 		return "https"
 	}
 	return "http"
@@ -85,70 +85,22 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	}
 }
 
-type IsHealthy struct {
-	status map[string]bool
-	health func(dst string) bool
-}
-
-type Balancer struct {
-	isHealthy *IsHealthy
-}
-
-func (hp *IsHealthy) CheckAll() {
-	for _, server := range serversPool {
-		if hp.health(server) {
-			hp.status[server] = true
-		} else {
-			hp.status[server] = false
-		}
-	}
-}
-
-func (bal *Balancer) verifyServer() {
-	for {
-		bal.isHealthy.CheckAll()
-		time.Sleep(5 * time.Second)
-	}
-}
-
-func (hp *IsHealthy) AllHealthy() []string {
-	var allHealthy []string
-	for _, server := range serversPool {
-		if hp.status[server] {
-			allHealthy = append(allHealthy, server)
-		}
-	}
-	return allHealthy
-}
-
-func hash(input string) uint32 {
-	hsh := fnv.New32a()
-	hsh.Write([]byte(input))
-	return hsh.Sum32()
-}
-
-func (bal *Balancer) doBalancer(url string) string {
-	allHealthy := bal.isHealthy.AllHealthy()
-
-	if len(allHealthy) == 0 {
-		log.Println("There are no healthy servers")
-		return "There are no healthy servers"
-	}
-	return ""
-}
-
 func main() {
 	flag.Parse()
-	isHealthy := &IsHealthy{}
-	isHealthy.status = map[string]bool{}
-	isHealthy.health = health
-	balance := &Balancer{}
-	balance.isHealthy = isHealthy
 
-	go balance.verifyServer()
+	healthChecker := &LoadBalancerHealthChecker{
+		serverHealthStatus: map[string]bool{},
+		health:             health,
+	}
 
-	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		server := balance.doBalancer(r.URL.Path)
+	balancer := &LoadBalancer{
+		healthChecker: healthChecker,
+	}
+
+	go balancer.proactiveServerCheck()
+
+	frontend := httptools.CreateServer(*lbPort, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		server := balancer.balance(r.URL.Path)
 		forward(server, rw, r)
 	}))
 
@@ -156,4 +108,58 @@ func main() {
 	log.Printf("Tracing support enabled: %t", *traceEnabled)
 	frontend.Start()
 	signal.WaitForTerminationSignal()
+}
+
+type LoadBalancer struct {
+	healthChecker *LoadBalancerHealthChecker
+}
+
+func (lb *LoadBalancer) proactiveServerCheck() {
+	for {
+		lb.healthChecker.CheckAllServers()
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func hash(input string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(input))
+	return h.Sum32()
+}
+
+func (lb *LoadBalancer) balance(urlPath string) string {
+	healthyServers := lb.healthChecker.GetHealthyServers()
+
+	if len(healthyServers) == 0 {
+		log.Println("No servers available")
+		return ""
+	}
+
+	serverIndex := int(hash(urlPath) % uint32(len(healthyServers)))
+	return healthyServers[serverIndex]
+}
+
+type LoadBalancerHealthChecker struct {
+	serverHealthStatus map[string]bool
+	health             func(dst string) bool
+}
+
+func (hc *LoadBalancerHealthChecker) CheckAllServers() {
+	for _, server := range backends {
+		if hc.health(server) {
+			hc.serverHealthStatus[server] = true
+		} else {
+			hc.serverHealthStatus[server] = false
+		}
+	}
+}
+
+func (hc *LoadBalancerHealthChecker) GetHealthyServers() []string {
+	var healthyServers []string
+	for _, server := range backends {
+		if hc.serverHealthStatus[server] {
+			healthyServers = append(healthyServers, server)
+		}
+	}
+	return healthyServers
 }

@@ -7,6 +7,7 @@ require github.com/stretchr/testify v1.8.4
 require (
 	github.com/kr/pretty v0.2.1
 	github.com/kr/text v0.1.0
+	gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405
 )
 
 require (
